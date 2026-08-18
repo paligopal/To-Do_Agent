@@ -1,0 +1,9 @@
+[project]
+name = "to-do-agent"
+version = "0.1.0"
+description = "A local-first desktop todo app with a messenger-agent integration layer"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.7",
+]
