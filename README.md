@@ -19,6 +19,48 @@ uv run main.py
 - `TodoService` is the single safe boundary for both the desktop app and a
   future messaging adapter.
 
+## MCP server
+
+The project now exposes a local Model Context Protocol (MCP) server over
+standard input/output. It never exposes the SQLite database itself; clients
+can only use validated tools:
+
+- `list_sections`, `list_tasks`
+- `add_task`, `update_task`, `complete_task`, `delete_task`
+
+Start it from the project directory:
+
+```powershell
+uv run todo-agent-mcp
+```
+
+For interactive development and manual testing in the MCP Inspector:
+
+```powershell
+uv run mcp dev todo_agent/mcp_server.py
+```
+
+The server and desktop GUI read the same database. Keep the server on local
+`stdio`; do not expose it as a public HTTP endpoint without authentication.
+
+## Connect Codex
+
+Register the server with Codex once:
+
+```powershell
+codex mcp add todo-agent -- ".\.venv\Scripts\todo-agent-mcp.exe"
+```
+
+Verify its configuration:
+
+```powershell
+codex mcp get todo-agent
+```
+
+Open a new Codex session and ask it to list, add, update, complete, or delete
+tasks. For example: `Add a high-priority Work task to finish the report
+tomorrow.` Remove the integration with `codex mcp remove todo-agent`.
+
 ## Agent command format
 
 The service is ready to receive text from a messenger connector:
@@ -40,6 +82,6 @@ WhatsApp requires the Meta WhatsApp Business Platform (or a provider such as
 Twilio), a public HTTPS webhook, and a secure tunnel to your PC. Protect it
 with an allow-list of your sender ID; never expose the database or GUI itself.
 
-Next milestone: add a Telegram adapter with a `.env` bot token and explicit
-allowed-chat-ID check. An LLM parser can come later, but it should only emit
-validated actions for `TodoService` rather than write to SQLite directly.
+Next milestone: add an in-app PyQt chat panel or a Telegram adapter. Any LLM
+integration should only emit validated actions for `TodoService` or call the
+MCP tools; it must never write to SQLite directly.
