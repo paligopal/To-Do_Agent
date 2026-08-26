@@ -16,8 +16,10 @@ class TodoRepository:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(database_path)
+        self.connection = sqlite3.connect(database_path, timeout=5)
         self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA busy_timeout = 5000")
+        self.connection.execute("PRAGMA journal_mode = WAL")
         self._create_schema()
         self._seed_sections()
 
@@ -104,10 +106,49 @@ class TodoRepository:
         return [self._to_task(row) for row in rows]
 
     def set_completed(self, task_id: int, completed: bool) -> None:
+        self.task(task_id)
         self.connection.execute("UPDATE tasks SET completed = ? WHERE id = ?", (int(completed), task_id))
         self.connection.commit()
 
+    def update_task(
+        self,
+        task_id: int,
+        *,
+        title: str | None = None,
+        section_name: str | None = None,
+        due_date: date | None = None,
+        clear_due_date: bool = False,
+        priority: str | None = None,
+    ) -> Task:
+        self.task(task_id)
+        changes: list[str] = []
+        values: list[object] = []
+        if title is not None:
+            title = title.strip()
+            if not title:
+                raise ValueError("A task needs a title.")
+            changes.append("title = ?")
+            values.append(title)
+        if section_name is not None:
+            changes.append("section_id = ?")
+            values.append(self.get_or_create_section(section_name).id)
+        if clear_due_date:
+            changes.append("due_date = NULL")
+        elif due_date is not None:
+            changes.append("due_date = ?")
+            values.append(due_date.isoformat())
+        if priority is not None:
+            changes.append("priority = ?")
+            values.append(priority)
+        if not changes:
+            raise ValueError("Provide at least one field to update.")
+        values.append(task_id)
+        self.connection.execute(f"UPDATE tasks SET {', '.join(changes)} WHERE id = ?", values)
+        self.connection.commit()
+        return self.task(task_id)
+
     def delete_task(self, task_id: int) -> None:
+        self.task(task_id)
         self.connection.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         self.connection.commit()
 

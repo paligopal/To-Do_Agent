@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Literal
 
 from .models import Task
 from .storage import TodoRepository
@@ -21,7 +22,68 @@ class TodoService:
         self.repository = repository
 
     def add_task(self, title: str, section: str = "Inbox", due_date: date | None = None, priority: str = "normal") -> Task:
-        return self.repository.add_task(title, section, due_date, priority)
+        return self.repository.add_task(title, section, due_date, self._validate_priority(priority))
+
+    def list_sections(self) -> list[dict[str, object]]:
+        return [{"id": section.id, "name": section.name, "position": section.position} for section in self.repository.sections()]
+
+    def list_tasks(self, section: str | None = None, include_completed: bool = False) -> list[dict[str, object]]:
+        section_id = None
+        if section is not None:
+            match = next((item for item in self.repository.sections() if item.name.casefold() == section.casefold()), None)
+            if match is None:
+                raise ValueError(f"Section '{section}' does not exist.")
+            section_id = match.id
+        section_names = {item.id: item.name for item in self.repository.sections()}
+        return [self.task_to_dict(task, section_names) for task in self.repository.tasks(section_id, include_completed)]
+
+    def update_task(
+        self,
+        task_id: int,
+        *,
+        title: str | None = None,
+        section: str | None = None,
+        due_date: date | None = None,
+        clear_due_date: bool = False,
+        priority: str | None = None,
+    ) -> dict[str, object]:
+        task = self.repository.update_task(task_id, title=title, section_name=section, due_date=due_date, clear_due_date=clear_due_date, priority=self._validate_priority(priority) if priority is not None else None)
+        return self.serialize_task(task)
+
+    def set_completed(self, task_id: int, completed: bool = True) -> dict[str, object]:
+        self.repository.set_completed(task_id, completed)
+        return self.serialize_task(self.repository.task(task_id))
+
+    def delete_task(self, task_id: int) -> dict[str, object]:
+        task = self.repository.task(task_id)
+        result = self.serialize_task(task)
+        self.repository.delete_task(task_id)
+        return result
+
+    @staticmethod
+    def parse_due_date(value: str | None) -> date | None:
+        if value is None:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError as error:
+            raise ValueError("due_date must use YYYY-MM-DD format.") from error
+
+    @staticmethod
+    def task_to_dict(task: Task, section_names: dict[int, str] | None = None) -> dict[str, object]:
+        if section_names is None:
+            section_names = {}
+        return {"id": task.id, "title": task.title, "section_id": task.section_id, "section": section_names.get(task.section_id), "completed": task.completed, "due_date": task.due_date.isoformat() if task.due_date else None, "priority": task.priority, "created_at": task.created_at}
+
+    def serialize_task(self, task: Task) -> dict[str, object]:
+        return self.task_to_dict(task, {section.id: section.name for section in self.repository.sections()})
+
+    @staticmethod
+    def _validate_priority(priority: str) -> Literal["high", "normal", "low"]:
+        normalized = priority.lower().strip()
+        if normalized not in {"high", "normal", "low"}:
+            raise ValueError("priority must be one of: high, normal, low.")
+        return normalized  # type: ignore[return-value]
 
     def process_message(self, text: str) -> AgentResult:
         """Parse predictable messages: add Buy milk #Personal tomorrow !high; list Work."""
